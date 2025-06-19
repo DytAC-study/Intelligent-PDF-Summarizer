@@ -1,8 +1,9 @@
-<!--
----
+**Video Link:** https://youtu.be/iJu6RmTxjR4
+
 description: This end-to-end sample shows how implement an intelligent PDF summarizer using Durable Functions. 
 page_type: sample
 products:
+
 - azure-functions
 - azure
 urlFragment: durable-func-pdf-summarizer
@@ -10,8 +11,8 @@ languages:
 - python
 - bicep
 - azdeveloper
----
--->
+
+
 
 # Intelligent PDF Summarizer
 The purpose of this sample application is to demonstrate how Durable Functions can be leveraged to create intelligent applications, particularly in a document processing scenario. Order and durability are key here because the results from one activity are passed to the next. Also, calls to services like Cognitive Service or Azure Open AI can be costly and should not be repeated in the event of failures.
@@ -105,3 +106,66 @@ Once the azd up command finishes, the app will have successfully provisioned and
 
 # Using the app
 To use the app, simply upload a PDF to the Blob Storage `input` container. Once the PDF is transferred, it will be processed using document intelligence and Azure OpenAI. The resulting summary will be saved to a new file and uploaded to the `output` container.
+
+
+
+## Development & Deployment Challenges Encountered
+
+During the development and deployment of this project, several technical challenges were encountered across different environments (Windows, WSL, macOS). These issues, primarily related to Azure service configuration and `azd` deployment, are documented below.
+
+### Issue 1: Azure OpenAI `DeploymentNotFound` Error
+
+**Error Message Example:**
+
+```
+[2025-06-19T01:56:55.766Z] System.Private.CoreLib: Exception while executing function: Functions.summarize_text. Azure.AI.OpenAI: HTTP 404 (DeploymentNotFound)
+[2025-06-19T01:56:55.766Z] The API deployment for this resource does not exist. If you created the deployment within the last 5 minutes, please wait a moment and try again.
+```
+
+**Description:** When the `summarize_text` activity function attempted to call the Azure OpenAI service, a `DeploymentNotFound` error was received. This occurred despite confirming that the `gpt-35-turbo` model was successfully deployed within the Azure OpenAI resource in the Azure portal.
+
+**Attempted Solutions:**
+
+1. **Deployment Name Verification:** Verified that the `CHAT_MODEL_DEPLOYMENT_NAME` (set to `gpt-35-turbo` in `local.settings.json`) exactly matched the deployment name in the Azure OpenAI Studio, including case sensitivity.
+2. **Endpoint Correction:** Identified a subtle mismatch in the `AZURE_OPENAI_ENDPOINT` value in `local.settings.json` compared to the actual endpoint displayed in the Azure OpenAI Studio (e.g., `.openai.azure.com` vs. `.cognitiveservices.azure.com`). The `AZURE_OPENAI_ENDPOINT` was corrected to precisely match the Azure portal's specified endpoint, `https://du000-mc2hi9wo-eastus2.cognitiveservices.azure.com/`.
+
+### Issue 2: `azd` Deployment Failure due to `SubscriptionIsOverQuotaForSku`
+
+**Error Message Example:**
+
+```
+ERROR: error executing step command 'provision': deployment failed: error deploying infrastructure: validating deployment to subscription:
+Validation Error Details:
+InvalidTemplateDeployment: The template deployment '...' is not valid according to the validation procedure.
+SubscriptionIsOverQuotaForSku: This region has quota of 0 ElasticPremium instances for your subscription.. Try selecting different region or SKU.
+InsufficientQuota: Insufficient quota. Cannot create/update/move resource 'cog-v3klbwazi73gq'.
+```
+
+**Description:** Upon running `azd up` to provision and deploy Azure resources, the process failed with a "quota exceeded" error, specifically indicating "quota of 0 ElasticPremium instances" in the targeted region.
+
+**Attempted Solutions:**
+
+1. **Environment Consistency:** The issue persisted across various development environments, including Windows, WSL, and macOS, suggesting a core configuration or Azure subscription limitation rather than an environment-specific problem.
+2. **Region Selection Constraint:** During the `azd up` prompt for selecting an Azure region, "Canada Central" (the preferred region where most existing services are located) was not available as an option. Deployments attempted in other selectable regions (e.g., `East US 2`) consistently resulted in the `ElasticPremium` quota error.
+3. **Subscription Type Limitation:** Further investigation strongly indicated that the "Azure for Students" subscription has inherent restrictions on deploying high-tier SKUs like `ElasticPremium`, leading to a default quota of zero for such instances.
+
+### Issue 3: `azd` Command Not Found
+
+**Error Message Example:**
+
+Bash
+
+```
+zsh: command not found: azd
+```
+
+**Description:** Initially, attempts to execute the `azd` command from the terminal resulted in a "command not found" error.
+
+**Attempted Solutions:**
+
+1. **Initial Script Installation Attempt:** An attempt to install `azd` via `curl -fsSL https://aka.ms/azd/install.sh | bash` failed because the `aka.ms` shortlink resolved to an HTML page instead of the expected installation script.
+2. **Corrected Homebrew Installation:** The issue was resolved on macOS by correctly leveraging Homebrew: first by tapping the Azure `azd` repository (`brew tap azure/azd`), and then performing the installation (`brew install azd`).
+
+## Current Status
+
+While the `azd` command installation and the Azure OpenAI Endpoint configuration issues have been successfully resolved, the **core deployment challenge related to the `ElasticPremium` SKU quota remains unresolved.** This prevents the project's Azure infrastructure from being successfully provisioned and deployed.
