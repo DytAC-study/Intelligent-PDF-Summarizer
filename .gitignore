@@ -415,4 +415,5 @@ __azurite_db_queue_extent__.json
 azurite_db_table__.json
 __azurite_*
 AzuriteConfig
-
+local.settings.json
+.DS_Store
