@@ -2,9 +2,10 @@
 
 name: functions-app
 metadata:
-    template: azd-init@1.10.1
+  template: azd-init@1.10.1
+location: canadacentral # <--- ADD THIS LINE to specify the region
 services:
-    function-app:
-        project: ./
-        language: python
-        host: function
+  function-app:
+    project: ./
+    language: python
+    host: function

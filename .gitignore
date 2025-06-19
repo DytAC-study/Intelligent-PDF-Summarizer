@@ -396,3 +396,23 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# === Local Python virtual environments ===
+venv/
+venv311/
+
+# === Azurite local emulator database and folders ===
+__blobstorage__/
+__queuestorage__/
+__pycache__/
+azurite/
+infra/
+media/
+__azurite_db_blob__.json
+__azurite_db_blob_extent__.json
+azurite_db_queue.json
+__azurite_db_queue_extent__.json
+azurite_db_table__.json
+__azurite_*
+AzuriteConfig
+

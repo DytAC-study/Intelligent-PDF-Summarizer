@@ -10,6 +10,7 @@ import time
 from requests import get, post
 import requests
 from datetime import datetime
+from azure.core.credentials import AzureKeyCredential
 
 my_app = df.DFApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 blob_service_client = BlobServiceClient.from_connection_string(os.environ.get("BLOB_STORAGE_ENDPOINT"))
@@ -52,7 +53,8 @@ def analyze_pdf(blobName):
     doc = ''
 
     endpoint = os.environ["COGNITIVE_SERVICES_ENDPOINT"]
-    credential = DefaultAzureCredential()
+    key = os.environ["COGNITIVE_SERVICES_KEY"]
+    credential = AzureKeyCredential(key)
 
     document_analysis_client = DocumentAnalysisClient(endpoint, credential)
 
