@@ -1,171 +1,138 @@
-**Video Link:** https://youtu.be/iJu6RmTxjR4
-
-description: This end-to-end sample shows how implement an intelligent PDF summarizer using Durable Functions. 
-page_type: sample
-products:
-
-- azure-functions
-- azure
-urlFragment: durable-func-pdf-summarizer
-languages:
-- python
-- bicep
-- azdeveloper
-
-
+Video：https://youtu.be/M0Kr5P3fQ7k
 
 # Intelligent PDF Summarizer
-The purpose of this sample application is to demonstrate how Durable Functions can be leveraged to create intelligent applications, particularly in a document processing scenario. Order and durability are key here because the results from one activity are passed to the next. Also, calls to services like Cognitive Service or Azure Open AI can be costly and should not be repeated in the event of failures.
 
-This sample integrates various Azure services, including Azure Durable Functions, Azure Storage, Azure Cognitive Services, and Azure Open AI.
+This sample demonstrates building an end-to-end intelligent PDF summarizer using Azure Durable Functions, Azure Storage, and Azure Cognitive Services (Form Recognizer). The orchestrator ensures each step runs in order, preserving state and enabling retries without duplicating costly service calls.
 
-The application showcases how PDFs can be ingested and intelligently scanned to determine their content.
+## Architecture Overview
 
-![Architecture Diagram](./media/architecture_v2.png)
+1. **Blob Upload:** PDFs are uploaded to the `input` container in Azure Blob Storage.
+2. **Orchestration Trigger:** A Durable Function is triggered by the blob upload event.
+3. **Text Extraction:** Activity function `analyze_pdf` uses Form Recognizer to extract text from the PDF.
+4. **Summarization:** Activity function `summarize_text` generates a summary. In local development, this service is **mocked** (returns a fixed sample summary); in production it can call Azure OpenAI.
+5. **Result Storage:** Activity function `write_doc` writes the summary to the `output` container.
 
-The application's workflow is as follows:
-1.	PDFs are uploaded to a blob storage input container.
-2.	A durable function is triggered upon blob upload.
-- - Downloads the blob (PDF).
-- - Utilizes the Azure Cognitive Service Form Recognizer endpoint to extract the text from the PDF.
-- - Sends the extracted text to Azure Open AI to analyze and determine the content of the PDF.
-- - Save the summary results from Azure Open AI to a new file and upload it to the output blob container.
+### Detailed Workflow
 
-Below, you will find the instructions to set up and run this app locally..
+1. **Upload & Trigger:** When a PDF lands in `input`, the blob trigger passes the blob name to the Durable orchestrator.
+2. **Text Extraction Activity:** `analyze_pdf` downloads the PDF, submits it to Form Recognizer, and concatenates all detected lines into a single text string.
+3. **Summarization Activity:** `summarize_text` receives the raw text. Locally it calls `mock_summary(text)` which returns a placeholder summary. In Azure, this activity can be bound to Azure OpenAI to perform real summarization.
+4. **Write Output Activity:** `write_doc` takes the summary object, constructs a timestamped filename, and uploads a `.txt` file to `output`.
+5. **Idempotency & Retries:** The orchestrator tracks each step’s output; on failure it retries activities without duplicating API calls or output files.
 
-## Prerequsites
-- [Create an active Azure subscription](https://learn.microsoft.com/en-us/azure/guides/developer/azure-developer-guide#understanding-accounts-subscriptions-and-billing).
-- [Install the latest Azure Functions Core Tools to use the CLI](https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local)
-- Python 3.9 or greater
-- Access permissions to [create Azure OpenAI resources and to deploy models](https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/role-based-access-control).
-- [Start and configure an Azurite storage emulator for local storage](https://learn.microsoft.com/azure/storage/common/storage-use-azurite).
+## Project Structure
 
-## local.settings.json
-You will need to configure a `local.settings.json` file at the root of the repo that looks similar to the below. Make sure to replace the placeholders with your specific values.
+```
+/ (repo root)
+├─ azure.yaml                # Azure Developer CLI configuration
+├─ infra/
+│   └─ main.bicep             # Bicep template for resources (Function App, Storage, Form Recognizer, etc.)
+├─ app/
+│   └─ durable-function.bicep # Dedicated module for Function App definition
+├─ function_app.py           # Durable Functions code (orchestrator + activities)
+├─ requirements.txt          # Python dependencies
+├─ local.settings.json       # Local configuration (excluded from source control)
+├─ media/architecture_v2.png  # Architecture diagram
+├─ media/code.png            # Orchestration code snippet
+└─ README.md                 # This documentation
+```
 
-```json
-{
-  "Values": {
-    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
-    "AzureWebJobsFeatureFlags": "EnableWorkerIndexing",
-    "FUNCTIONS_WORKER_RUNTIME": "python",
-    "BLOB_STORAGE_ENDPOINT": "<BLOB-STORAGE-ENDPOINT>",
-    "COGNITIVE_SERVICES_ENDPOINT": "<COGNITIVE-SERVICE-ENDPOINT>",
-    "AZURE_OPENAI_ENDPOINT": "AZURE-OPEN-AI-ENDPOINT>",
-    "AZURE_OPENAI_KEY": "<AZURE-OPEN-AI-KEY>",
-    "CHAT_MODEL_DEPLOYMENT_NAME": "<AZURE-OPEN-AI-MODEL>"
+### Key Bicep Highlights (`infra/main.bicep`)
+
+```bicep
+param location string = 'canadacentral'
+param functionSkuName string = 'Y1'
+param functionSkuTier string = 'Dynamic'
+param documentIntelligenceSkuName string
+param documentIntelligenceServiceName string
+
+resource rg 'Microsoft.Resources/resourceGroups@2021-04-01' = { ... }
+
+module appServicePlan './core/host/appserviceplan.bicep' = { ... }
+module durableFunction './app/durable-function.bicep' = {
+  params: {
+    appServicePlanId: appServicePlan.outputs.id
+    documentIntelligenceEndpoint: documentIntelligence.outputs.endpoint
+    // no VNet integration for Consumption plan
   }
 }
+
+module storage './core/storage/storage-account.bicep' = { ... }
+module documentIntelligence 'br/public:avm/res/cognitive-services/account:0.5.4' = { ... }
 ```
 
-## Running the app locally
-1. Start Azurite: Begin by starting Azurite, the local Azure Storage emulator.
+## Prerequisites
 
-2. Install the Requirements: Open your terminal and run the following command to install the necessary packages:
+- Azure subscription (e.g. Azure for Students)
+- Azure Functions Core Tools
+- Python 3.9+
+- Azurite (for local storage emulation)
+- Form Recognizer resource
+
+## Local Setup
+
+1. Copy `.env.example` to `local.settings.json` and fill in your values:
+
+   ```json
+   {
+     "Values": {
+       "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+       "FUNCTIONS_WORKER_RUNTIME": "python",
+       "BLOB_STORAGE_ENDPOINT": "<connection-string>",
+       "COGNITIVE_SERVICES_ENDPOINT": "<form-recognizer-endpoint>",
+       "COGNITIVE_SERVICES_KEY": "<form-recognizer-key>"
+     }
+   }
+   ```
+
+2. Create and activate a virtual environment:
+
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+3. Start Azurite:
+
+   ```bash
+   azurite --silent --location ./azurite
+   ```
+
+4. Create `input` and `output` containers:
+
+   ```bash
+   az storage container create -n input --connection-string "UseDevelopmentStorage=true"
+   az storage container create -n output --connection-string "UseDevelopmentStorage=true"
+   ```
+
+5. Run functions locally:
+
+   ```bash
+   func start --verbose
+   ```
+
+## Deploy to Azure
+
+Use Azure Developer CLI (azd):
 
 ```bash
-python3 -m pip install -r requirements.txt
-```
-3. Create two containers in your storage account. One called `input` and the other called `output`. 
-
-4. Start the Function App: Start the function app to run the application locally.
-
-```bash
-func start --verbose
+azd up \
+  --environment <env-name> \
+  --subscription <subscription-id> \
+  --location canadacentral
 ```
 
-5. Upload PDFs to the `input` container. That will execute the blob storage trigger in your Durable Function.
+This provisions resources via Bicep and deploys your code.
 
-6. After several seconds, your appliation should have finished the orchestrations. Switch to the `output` container and notice that the PDFs have been summarized as new files. 
+## Using the App
 
->Note: The summaries may be truncated based on token limit from Azure Open AI. This is intentional as a way to reduce costs. 
+- Upload a PDF to the **input** container in your Azure Storage account.
 
-## Inspect the code
-This app leverages Durable Functions to orchestrate the application workflow. By using Durable Functions, there's no need for additional infrastructure like queues and state stores to manage task coordination and durability, which significantly reduces the complexity for developers. 
+- The orchestrator runs and outputs a summary file in the **output** container.
 
-Take a look at the code snippet below, the `process_document` defines the entire workflow, which consists of a series of steps (activities) that need to be scheduled in sequence. Coordination is key, as the output of one activity is passed as an input to the next. Additionally, Durable Functions handle durability and retries, which ensure that if a failure occurs, such as a transient error or an issue with a dependent service, the workflow can recover gracefully.
+- Monitor logs:
 
-![Orchestration Code](./media/code.png)
-
-## Deploy the app to Azure
-
-Use the [Azure Developer CLI (`azd`)](https://aka.ms/azd) to easily deploy the app. 
-
-1. In the root of the project, run the following command to provision and deploy the app:
-
-    ```bash
-    azd up
-    ```
-
-1. When prompted, provide:
-   - A name for your [Azure Developer CLI environment](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/faq#what-is-an-environment-name).
-   - The Azure subscription you'd like to use.
-   - The Azure location to use.
-
-Once the azd up command finishes, the app will have successfully provisioned and deployed. 
-
-# Using the app
-To use the app, simply upload a PDF to the Blob Storage `input` container. Once the PDF is transferred, it will be processed using document intelligence and Azure OpenAI. The resulting summary will be saved to a new file and uploaded to the `output` container.
-
-
-
-## Development & Deployment Challenges Encountered
-
-During the development and deployment of this project, several technical challenges were encountered across different environments (Windows, WSL, macOS). These issues, primarily related to Azure service configuration and `azd` deployment, are documented below.
-
-### Issue 1: Azure OpenAI `DeploymentNotFound` Error
-
-**Error Message Example:**
-
-```
-[2025-06-19T01:56:55.766Z] System.Private.CoreLib: Exception while executing function: Functions.summarize_text. Azure.AI.OpenAI: HTTP 404 (DeploymentNotFound)
-[2025-06-19T01:56:55.766Z] The API deployment for this resource does not exist. If you created the deployment within the last 5 minutes, please wait a moment and try again.
-```
-
-**Description:** When the `summarize_text` activity function attempted to call the Azure OpenAI service, a `DeploymentNotFound` error was received. This occurred despite confirming that the `gpt-35-turbo` model was successfully deployed within the Azure OpenAI resource in the Azure portal.
-
-**Attempted Solutions:**
-
-1. **Deployment Name Verification:** Verified that the `CHAT_MODEL_DEPLOYMENT_NAME` (set to `gpt-35-turbo` in `local.settings.json`) exactly matched the deployment name in the Azure OpenAI Studio, including case sensitivity.
-2. **Endpoint Correction:** Identified a subtle mismatch in the `AZURE_OPENAI_ENDPOINT` value in `local.settings.json` compared to the actual endpoint displayed in the Azure OpenAI Studio (e.g., `.openai.azure.com` vs. `.cognitiveservices.azure.com`). The `AZURE_OPENAI_ENDPOINT` was corrected to precisely match the Azure portal's specified endpoint, `https://du000-mc2hi9wo-eastus2.cognitiveservices.azure.com/`.
-
-### Issue 2: `azd` Deployment Failure due to `SubscriptionIsOverQuotaForSku`
-
-**Error Message Example:**
-
-```
-ERROR: error executing step command 'provision': deployment failed: error deploying infrastructure: validating deployment to subscription:
-Validation Error Details:
-InvalidTemplateDeployment: The template deployment '...' is not valid according to the validation procedure.
-SubscriptionIsOverQuotaForSku: This region has quota of 0 ElasticPremium instances for your subscription.. Try selecting different region or SKU.
-InsufficientQuota: Insufficient quota. Cannot create/update/move resource 'cog-v3klbwazi73gq'.
-```
-
-**Description:** Upon running `azd up` to provision and deploy Azure resources, the process failed with a "quota exceeded" error, specifically indicating "quota of 0 ElasticPremium instances" in the targeted region.
-
-**Attempted Solutions:**
-
-1. **Environment Consistency:** The issue persisted across various development environments, including Windows, WSL, and macOS, suggesting a core configuration or Azure subscription limitation rather than an environment-specific problem.
-2. **Region Selection Constraint:** During the `azd up` prompt for selecting an Azure region, "Canada Central" (the preferred region where most existing services are located) was not available as an option. Deployments attempted in other selectable regions (e.g., `East US 2`) consistently resulted in the `ElasticPremium` quota error.
-3. **Subscription Type Limitation:** Further investigation strongly indicated that the "Azure for Students" subscription has inherent restrictions on deploying high-tier SKUs like `ElasticPremium`, leading to a default quota of zero for such instances.
-
-### Issue 3: `azd` Command Not Found
-
-**Error Message Example:**
-
-Bash
-
-```
-zsh: command not found: azd
-```
-
-**Description:** Initially, attempts to execute the `azd` command from the terminal resulted in a "command not found" error.
-
-**Attempted Solutions:**
-
-1. **Initial Script Installation Attempt:** An attempt to install `azd` via `curl -fsSL https://aka.ms/azd/install.sh | bash` failed because the `aka.ms` shortlink resolved to an HTML page instead of the expected installation script.
-2. **Corrected Homebrew Installation:** The issue was resolved on macOS by correctly leveraging Homebrew: first by tapping the Azure `azd` repository (`brew tap azure/azd`), and then performing the installation (`brew install azd`).
-
-## Current Status
-
-While the `azd` command installation and the Azure OpenAI Endpoint configuration issues have been successfully resolved, the **core deployment challenge related to the `ElasticPremium` SKU quota remains unresolved.** This prevents the project's Azure infrastructure from being successfully provisioned and deployed.
+  ```bash
+  azd logs functionapp --follow
+  ```
